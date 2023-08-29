@@ -1,0 +1,21 @@
+#!/bin/dash
+
+# Check if inside a Pigs repository directory
+if [ ! -d ".pig" ]; then
+    echo "Not inside a pigs repository directory." >&2
+    exit 1
+fi
+
+# Check if the commits directory exists
+if [ ! -d ".pig/commits" ]; then
+    echo "No commits found." >&2
+    exit 1
+fi
+
+# Loop through each commit in reverse order and display the commit message
+find .pig/commits/* -type d -exec basename {} \; | sort -rn | while read -r commit_number; do
+    commit_dir=".pig/commits/$commit_number"
+    commit_message=$(cat "$commit_dir/commit-message")
+    
+    echo "$commit_number $commit_message"
+done

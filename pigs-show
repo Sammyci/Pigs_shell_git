@@ -1,0 +1,51 @@
+#!/bin/dash
+
+# Check if inside a Pigs repository directory
+if [ ! -d ".pig" ]; then
+    echo "Not inside a pigs repository directory." >&2
+    exit 1
+fi
+
+# Check if the user has provided input
+if [ "$#" -ne 1 ]; then
+    echo "Usage: pigs-show <commit>:<filename> or :<filename> for index" >&2
+    exit 1
+fi
+
+input_str="$1"
+commit_number=$(echo "$input_str" | cut -d ':' -f 1)
+filename=$(echo "$input_str" | cut -d ':' -f 2)
+
+# If the commit_number part is empty, use the index.
+if [ -z "$commit_number" ]; then
+    # Check if the file exists in the index
+    index_file=".pig/index/$filename"
+    if [ ! -f "$index_file" ]; then
+        echo "pigs-show: error: '$filename' not found in index"
+        exit 1
+    fi
+    # Display the contents of the file in the index
+    cat "$index_file"
+else
+    # Check if the commits directory exists
+    if [ ! -d ".pig/commits" ]; then
+        echo "No commits found." >&2
+        exit 1
+    fi
+
+    commit_dir=".pig/commits/$commit_number"
+    # Check if the specified commit directory exists
+    if [ ! -d "$commit_dir" ]; then
+        echo "pigs-show: error: unknown commit '$commit_number'" >&2
+        exit 1
+    fi
+
+    # Check if file exists in the commit
+    if [ ! -f "$commit_dir/$filename" ]; then
+        echo "pigs-show: error: '$filename' not found in commit $commit_number"
+        exit 1
+    fi
+
+    # Display the contents of the file in the commit
+    cat "$commit_dir/$filename"
+fi

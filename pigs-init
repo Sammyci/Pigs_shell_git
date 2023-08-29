@@ -1,0 +1,13 @@
+#!/bin/dash
+
+# Check if a .pig directory already exists
+if [ -d ".pig" ]; then
+    echo "pigs-init: error: .pig already exists" >&2
+    exit 1
+fi
+
+# Creating a .pig directory
+mkdir .pig
+
+# Output information
+echo "Initialized empty pigs repository in .pig"

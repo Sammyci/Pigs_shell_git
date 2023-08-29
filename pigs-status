@@ -1,0 +1,118 @@
+#!/bin/dash
+
+# Check if inside a Pigs repository directory
+if [ ! -d ".pig" ]; then
+    echo "Not inside a pigs repository directory." >&2
+    exit 1
+fi
+
+# Determine the latest commit number
+latest_commit_number=0
+while [ -e ".pig/commits/$latest_commit_number" ]; do
+    latest_commit_number=$((latest_commit_number+1))
+done
+latest_commit_number=$((latest_commit_number-1))
+
+# Temporary file to store the output lines
+tempfile=$(mktemp)
+
+# Loop through files in index
+if [ -d ".pig/index" ]; then
+    for index_file in .pig/index/*; do
+        file=$(basename "$index_file")
+
+        in_local=$(test -f "$file" && echo "yes" || echo "no")
+        in_index=$(test -f ".pig/index/$file" && echo "yes" || echo "no")
+        in_repo=$(test $latest_commit_number -ge 0 && test -f ".pig/commits/$latest_commit_number/$file" && echo "yes" || echo "no")
+
+
+        # Case: local is consistent with index, not with repo
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "yes" ]; then
+            if cmp -s ".pig/index/$file" "$file"; then
+                if ! cmp -s ".pig/index/$file" ".pig/commits/$latest_commit_number/$file"; then
+                    echo "$file - file changed, changes staged for commit" >> "$tempfile"
+                fi
+            fi
+        fi
+
+        # Case: local and index have files and both are consistent, repo has no files
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "no" ]; then
+            if cmp -s ".pig/index/$file" "$file"; then
+                echo "$file - added to index" >> "$tempfile"
+            else
+                echo "$file - added to index, file changed" >> "$tempfile"
+            fi
+        fi
+
+        # Case: local has no files, index and repo have files and are consistent
+        if [ "$in_local" = "no" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "yes" ]; then
+            if cmp -s ".pig/index/$file" ".pig/commits/$latest_commit_number/$file"; then
+                echo "$file - file deleted" >> "$tempfile"
+            else
+                echo "$file - file deleted, changes staged for commit" >> "$tempfile"
+            fi
+        fi
+
+        # Case: The content is inconsistent in all three places
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "yes" ]; then
+            if ! cmp -s "$file" ".pig/index/$file" && ! cmp -s ".pig/index/$file" ".pig/commits/$latest_commit_number/$file" && ! cmp -s "$file" ".pig/commits/$latest_commit_number/$file"; then
+                echo "$file - file changed, different changes staged for commit" >> "$tempfile"
+            fi
+        fi
+        
+        # Case: local and index do not match index and repo
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "yes" ]; then
+            if ! cmp -s "$file" ".pig/index/$file" && cmp -s ".pig/index/$file" ".pig/commits/$latest_commit_number/$file"; then
+                echo "$file - file changed, changes not staged for commit" >> "$tempfile"
+            fi
+        fi
+
+        # Case: local has no files, index has files, repo has no files
+        if [ "$in_local" = "no" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "no" ]; then
+            echo "$file - added to index, file deleted" >> "$tempfile"
+        fi
+    done
+fi
+
+# Loop through files in the current directory
+for file in *; do
+    if [ -f "$file" ]; then
+        in_local=$(test -f "$file" && echo "yes" || echo "no")
+        in_index=$(test -f ".pig/index/$file" && echo "yes" || echo "no")
+        in_repo=$(test $latest_commit_number -ge 0 && test -f ".pig/commits/$latest_commit_number/$file" && echo "yes" || echo "no")
+
+        # Check if file is untracked or added to index
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "no" ] && [ "$in_repo" = "no" ]; then
+            echo "$file - untracked" >> "$tempfile"
+        fi
+        # Case: local has files, index has no files, repo has files
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "no" ] && [ "$in_repo" = "yes" ]; then
+            echo "$file - deleted from index" >> "$tempfile"
+        fi
+        # Case: local, index, and repo all have the file and are the same
+        if [ "$in_local" = "yes" ] && [ "$in_index" = "yes" ] && [ "$in_repo" = "yes" ]; then
+            if cmp -s "$file" ".pig/index/$file" && cmp -s ".pig/index/$file" ".pig/commits/$latest_commit_number/$file"; then
+                echo "$file - same as repo" >> "$tempfile"
+            fi
+        fi
+    fi
+done
+
+# Loop through files in the latest commit
+if [ $latest_commit_number -ge 0 ]; then
+    for commit_file in ".pig/commits/$latest_commit_number"/*; do
+        file=$(basename "$commit_file")
+
+        # Exclude the commit-message file
+        if [ "$file" != "commit-message" ]; then
+            # Check if file has been deleted
+            if [ ! -f "$file" ] && [ ! -f ".pig/index/$file" ]; then
+                echo "$file - file deleted, deleted from index" >> "$tempfile"
+            fi
+        fi
+    done
+fi
+
+# Sort and print the output
+sort "$tempfile"
+rm "$tempfile"

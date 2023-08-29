@@ -1,0 +1,121 @@
+#!/bin/dash
+
+# Check if inside a Pigs repository directory
+if [ ! -d ".pig" ]; then
+    echo "Not inside a pigs repository directory." >&2
+    exit 1
+fi
+
+# Variable to track if the -a option is used
+all=false
+
+# Parse options
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -a)
+            all=true
+            shift
+            ;;
+        -m)
+            if [ "$#" -lt 2 ]; then
+                echo "Usage: pigs-commit [-a] -m <message>" >&2
+                exit 1
+            fi
+            message="$2"
+            shift 2
+            ;;
+        *)
+            echo "Usage: pigs-commit [-a] -m <message>" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "$message" ]; then
+    echo "Usage: pigs-commit [-a] -m <message>" >&2
+    exit 1
+fi
+
+# Creating unique commit number
+commit_number=0
+while [ -e ".pig/commits/$commit_number" ]; do
+    commit_number=$((commit_number+1))
+done
+
+# If the -a option is used, add all tracked and modified files to the staging area
+if [ "$all" = true ]; then
+    for file in .pig/index/*; do
+        file_name=$(basename "$file")
+        if [ -f "$file_name" ] && [ "$file" -ot "$file_name" ]; then
+            cp "$file_name" ".pig/index/"
+        fi
+    done
+fi
+
+previous_commit_number=$((commit_number-1))
+
+# Check if there are files in staging area
+if [ "$(ls -A .pig/index)" ]; then
+    has_changes=false
+    # Check only if there is a previous commit
+    if [ "$previous_commit_number" -ge 0 ]; then
+        for file in .pig/index/*; do
+            # Check if iterating over empty index directory
+            [ "$file" = ".pig/index/*" ] && break
+            file_name=$(basename "$file")
+            if [ -f ".pig/commits/$previous_commit_number/$file_name" ]; then
+                # Use cmp command to compare contents
+                if ! cmp -s "$file" ".pig/commits/$previous_commit_number/$file_name"; then
+                    has_changes=true
+                    break
+                fi
+            else
+                # File is new and not in the previous commit, mark as has_changes
+                has_changes=true
+                break
+            fi
+        done
+        
+        # Check for deleted files if no changes have been found yet
+        if [ "$has_changes" = false ]; then
+            for deleted_file in ".pig/commits/$previous_commit_number"/*; do
+                deleted_file_name=$(basename "$deleted_file")
+                if [ "$deleted_file_name" != "commit-message" ] && [ ! -f ".pig/index/$deleted_file_name" ]; then
+                    # File is deleted in index, mark as has_changes
+                    has_changes=true
+                    break
+                fi
+            done
+        fi
+    else
+        # There is no previous commit, so changes must be committed
+        has_changes=true
+    fi
+
+    if [ "$has_changes" = false ]; then
+        echo "nothing to commit" >&2
+        exit 0
+    fi
+
+    # Create commit directory
+    mkdir -p ".pig/commits/$commit_number"
+
+    # Move files from staging area to commit directory
+    cp .pig/index/* ".pig/commits/$commit_number/"
+
+    # Save commit message in a file
+    echo "$message" > ".pig/commits/$commit_number/commit-message"
+
+    echo "Committed as commit $commit_number"
+else
+    if [ "$previous_commit_number" -ge 0 ] && [ "$(ls -A .pig/commits/$previous_commit_number)" ] && { [ -z "$(ls -A -I '.*')" ] || diff -r --exclude=.* --exclude=commit-message ".pig/commits/$previous_commit_number" . > /dev/null; }; then
+        # Create commit directory
+        mkdir -p ".pig/commits/$commit_number"
+        # Save commit message in a file
+        echo "$message" > ".pig/commits/$commit_number/commit-message"
+        echo "Committed as commit $commit_number"
+    else
+        echo "nothing to commit" >&2
+        exit 1
+    fi
+fi

@@ -1,0 +1,29 @@
+#!/bin/dash
+
+# Check if inside a Pigs repository directory
+if [ ! -d ".pig" ]; then
+    echo "pigs-add: error: pigs repository directory .pig not found" >&2
+    exit 1
+fi
+
+# Check if filenames were provided as arguments
+if [ "$#" -eq 0 ]; then
+    echo "Usage: pigs-add <filenames>" >&2
+    exit 1
+fi
+
+# Create staging area directory if it doesn't exist
+mkdir -p .pig/index
+
+# Loop through each provided filename and copy them to the staging area
+for file in "$@"; do
+    if [ -f "$file" ]; then
+        cp "$file" ".pig/index/$file"
+    elif [ -f ".pig/index/$file" ]; then
+        # If the file does not exist in the working directory but exists in the staging area,
+        # remove it from the staging area.
+        rm ".pig/index/$file"
+    else
+        echo "pigs-add: error: can not open '$file'" >&2
+    fi
+done

@@ -1,0 +1,95 @@
+#!/bin/dash
+
+# Check if inside a Pigs repository directory
+if [ ! -d ".pig" ]; then
+    echo "pigs-rm: error: not a pigs directory" >&2
+    exit 1
+fi
+
+force=false
+cached=false
+
+# Parse options
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --force)
+            force=true
+            shift
+            ;;
+        --cached)
+            cached=true
+            shift
+            ;;
+        *)
+            # If it's not an option, break the loop
+            if [ "${1#-}" = "$1" ]; then
+                break
+            else
+                echo "Usage: pigs-rm [--force] [--cached] <filenames>" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+# Determine the latest commit number
+commit_number=0
+while [ -e ".pig/commits/$commit_number" ]; do
+    commit_number=$((commit_number+1))
+done
+latest_commit=$((commit_number-1))
+
+# Loop through each provided filename
+for file in "$@"; do
+    # Check if file exists in the index
+    if [ -f ".pig/index/$file" ]; then
+        
+        # If --force option is specified, remove the file from the index and optionally the current directory without any checks
+        if [ "$force" = true ]; then
+            rm -f ".pig/index/$file"
+            if [ "$cached" = false ]; then
+                rm -f "$file"
+            fi
+            continue # Move to the next file
+        fi
+
+        # Check for differences between the index and the latest commit
+        index_repo_diff=$(diff -q ".pig/index/$file" ".pig/commits/$latest_commit/$file" > /dev/null 2>&1; echo $?)
+        working_repo_diff=$(diff -q "$file" ".pig/commits/$latest_commit/$file" > /dev/null 2>&1; echo $?)
+        index_working_diff=$(diff -q ".pig/index/$file" "$file" > /dev/null 2>&1; echo $?)
+        
+        # If --cached option is specified
+        if [ "$cached" = true ]; then
+            # If the file is different in both the repo and working directory
+            if [ "$index_repo_diff" -ne 0 ] && [ "$index_working_diff" -ne 0 ]; then
+                echo "pigs-rm: error: '$file' in index is different to both the working file and the repository" >&2
+                continue
+            fi
+            rm ".pig/index/$file"
+        else
+            if [ "$file" = "commit-message" ]; then
+                continue  # Ignore commit-message
+            fi
+
+            # Check the differences and output error accordingly
+            if [ "$index_repo_diff" -ne 0 ] && [ "$index_working_diff" -ne 0 ]; then
+                echo "pigs-rm: error: '$file' in index is different to both the working file and the repository" >&2
+                continue
+            elif [ "$index_repo_diff" -ne 0 ]; then
+                echo "pigs-rm: error: '$file' has staged changes in the index" >&2
+                continue
+            elif [ "$working_repo_diff" -ne 0 ]; then
+                echo "pigs-rm: error: '$file' in the repository is different to the working file" >&2
+                continue
+            fi
+            
+            # Remove file from the index and the current directory
+            rm -f ".pig/index/$file"
+            
+            # If not using --cached option, remove the file from the current directory as well
+            rm -f "$file"
+        fi
+    else
+        echo "pigs-rm: error: '$file' is not in the pigs repository" >&2
+    fi
+done
